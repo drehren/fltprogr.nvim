@@ -1,0 +1,106 @@
+# fltprog.nvim
+----
+WIP: A progress api concept for neovim.
+
+## Requirements
+
+- neovim >= v0.11.0
+
+## Instalation
+
+Use a plugin manager to add this plugin to your installation, or download to a path in
+your runtime path.
+There are no other dependencies.
+
+## How to use
+
+To use this plugin:
+1. Create a progress display, and register it to the categories you want it to work with.
+2. Create a progress source, and register it to provide events for a single category.
+3. With the progress source, create progress event that will be displayed by the registered
+   progress displays that listen to the source category.
+
+This plugin creates a progress source out of LSP `workDoneProgress` messages.
+If you want to opt out:
+```lua
+vim.g.fltprog_loaded = 0
+```
+```vim
+set g:fltprog_loaded = 0
+```
+
+NOTE: if you are a lazy.nvim user, this may not work. Sorry.
+
+### Create a progress display
+
+```lua
+local progress = require('fltprog')
+
+-- The event table contains the same information for all callbacks
+--   - source integer source id
+--   - id integer event id
+--   - category string source category
+--   - title string
+--   - message string|nil
+--   - progress number|true the progress in range of 0.0 to 1.0 (1 -> 100%), or `true` if indeterminate
+--   - [string] any additional information passed by the source to the event
+
+-- Create the progress event display
+local id = progress.create_display({
+    on_start = function(event)
+        -- handle the start of the event
+        vim.notify(event.title .. ' stated')
+    end,
+    on_update = function(event)
+        -- handles an event update
+        vim.notify(event.title .. ' updated')
+    end,
+    on_end = function(event)
+        -- should remove (at some point) the event from display
+        vim.notify(event.title .. ' ended')
+    end,
+})
+
+-- register it
+progress.display_register(id, progres.categories.LSP)
+-- or progress.display_register(id, { progress.categories.LSP, 'CUSTOM' })
+```
+
+### Create a progress source
+
+```lua
+local progress = require('fltprog')
+
+-- this is your source id, keep it to send progress events
+local source = progress.create_source('CUSTOM')
+
+-- ...
+
+local event = progres.source_create_event(source, true --[[autostart]], {
+    title = "My Progress Event", -- required,
+    progress = 0.1, -- optional, if nil api assumes indeterminate progress
+    message = "aditional information", -- optional, display chooses to use it or not
+    background_data = {}, -- category specific data
+    cancel = function() end, -- optional, callback function to cancell progress event
+})
+
+-- if you want to start the event at a later moment, you pass `false` in source_create_event
+-- progress.source_event_start(source, event)
+
+-- ...
+
+-- to send progress updates
+progress.source_event_update(source, event, {
+    -- all optional data can be updated here, title changes will be ignored
+})
+
+-- ..
+
+-- to signal the end of the progress event
+progress.source_event_end(source, event, {
+    -- same data as before
+})
+
+-- after this, event cannot be used anymore
+```
+

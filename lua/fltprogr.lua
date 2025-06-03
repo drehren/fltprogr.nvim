@@ -1,0 +1,367 @@
+---@class fltprogr.broker
+local M = {
+	---@enum fltprogr.categories
+	categories = {
+		ANY = '*',
+		LSP = 'lsp',
+		WORK = 'work',
+	},
+}
+
+---@class fltprogr.progress_event
+---@field id integer This event id
+---@field source fltprogr.source The source id
+---@field category string The category this event was sent to
+---@field title string Event title, is the same through the event
+---@field progress number|true Event progress
+---@field message? string Event current state
+---@field cancel? function If exists, the progress event is cancellable
+---@field [string] any
+
+--- Callbacks required for progress display.
+---@class fltprogr.display.set_callbacks
+--- Called when a progress event starts.
+---@field on_start fun(event: fltprogr.progress_event)
+--- Called anytime a progress event gets updated.
+---@field on_update fun(event: fltprogr.progress_event)
+--- Called when a progress event end. It can still update some data.
+---@field on_end fun(event: fltprogr.progress_event)
+
+---@alias fltprogr.source number Source id
+---@alias fltprogr.display number Display id
+---@alias fltprogr.event number Event id
+
+---@private
+---@class fltprogr.event_states
+---@field started table<integer, boolean>
+---@field ended table<integer, boolean>
+
+---@private
+---@class fltprogr.srcdef
+---@field category string
+---@field events fltprogr.progress_event[]
+---@field event_state fltprogr.event_states
+
+local broker = {
+	---@type (fltprogr.srcdef|false)[]
+	sources = {},
+	---@type (fltprogr.display.set_callbacks|false)[]
+	displays = {},
+	---@type table<string, fltprogr.display[]>
+	categories = {},
+}
+
+--- Creates a progress display.
+---@param callbacks fltprogr.display.set_callbacks
+---@return fltprogr.display
+function M.create_display(callbacks)
+	vim.validate('callbacks', callbacks, 'table')
+	vim.validate('callbacks.on_start', callbacks.on_start, 'function')
+	vim.validate('callbacks.on_update', callbacks.on_update, 'function')
+	vim.validate('callbacks.on_end', callbacks.on_end, 'function')
+	table.insert(broker.displays, callbacks)
+	return #broker.displays
+end
+
+--- Checks if the progress display is valid.
+--- @param display fltprogr.display Display id
+--- @return boolean
+function M.display_is_valid(display)
+	vim.validate('display', display, 'number')
+	return not not broker.displays[display]
+end
+
+--- Registers a display to be used with the specified categories.
+---@param display fltprogr.display Display id
+---@param categories (fltprogr.categories|string)[] Categories to display progress from
+function M.display_register(display, categories)
+	vim.validate('display', display, 'number')
+	if not broker.displays[display] then
+		error(('Invalid display id: %d'):format(display))
+	end
+	vim.validate('categories', categories, 'table')
+
+	for _, category in ipairs(categories) do
+		if not broker.categories[category] then
+			broker.categories[category] = {}
+		end
+		if not vim.list_contains(broker.categories[category], display) then
+			table.insert(broker.categories[category], display)
+		end
+	end
+end
+
+--- Unregisters and removes a progress display.
+---@param display fltprogr.display Display id
+function M.display_delete(display)
+	vim.validate('display', display, 'number')
+	if not broker.displays[display] then
+		error(('Invalid display id: %d'):format(display))
+	end
+
+	for _, dc in ipairs(broker.categories) do
+		for i = 1, #dc do
+			if dc[i] == display then
+				table.remove(dc, i)
+				break
+			end
+		end
+	end
+
+	broker.displays[display] = false
+end
+
+--- Creates a new progress source.
+---@param category fltprogr.categories|string Progress source category
+---@return fltprogr.source
+function M.create_source(category)
+	vim.validate('category', category, 'string')
+	---@type fltprogr.srcdef
+	local srcdef = {
+		category = category,
+		events = {},
+		event_state = {
+			created = {},
+			ended = {},
+			started = {},
+		},
+	}
+	table.insert(broker.sources, srcdef)
+	return #broker.sources
+end
+
+--- Checks if the given source is valid.
+---@param source fltprogr.source Source id
+---@return boolean
+function M.source_is_valid(source)
+	vim.validate('source', source, 'number')
+	return not not broker.sources[source]
+end
+
+---@class fltprogr.source_progress
+---@field title string The progress event title
+---@field message string? A progress message
+---@field progress? number The progress value
+---@field cancel? function If exists, this progress event is cancellable
+
+--- Creates and optionally starts a new event for the given source.
+---@param source fltprogr.source Source id
+---@param start boolean Indicate whether to start/signal this event right away
+---@param data fltprogr.source_progress Source event data
+function M.source_create_event(source, start, data)
+	vim.validate('source', source, 'number')
+
+	local srcdef = broker.sources[source]
+	if not srcdef then
+		error(('Invalid source id: %d'):format(source))
+	end
+
+	vim.validate('data', data, 'table')
+	vim.validate('data.title', data.title, 'string')
+	vim.validate('data.progress', data.progress, 'number', true)
+	vim.validate('data.message', data.message, 'string', true)
+	vim.validate('data.cancel', data.cancel, 'callable', true)
+
+	---@type fltprogr.progress_event
+	local event = {
+		id = #srcdef.events + 1,
+		title = data.title,
+		message = data.message,
+		progress = data.progress or true,
+		source = source,
+		category = srcdef.category,
+	}
+	if data.cancel then
+		event.cancel = function(...)
+			data.cancel(...)
+			M.source_event_end(source, event.id)
+		end
+	end
+	-- copy additional data into event
+	event = vim.tbl_extend('keep', event, data)
+	table.insert(srcdef.events, event)
+
+	if start then
+		M.source_event_start(source, #srcdef.events)
+	end
+
+	return #srcdef.events
+end
+
+--- Starts an event
+---@param source fltprogr.source Source id
+---@param event fltprogr.event Event id
+function M.source_event_start(source, event)
+	vim.validate('source', source, 'number')
+	local srcdef = broker.sources[source]
+	if not srcdef then
+		error(('Invalid source id: %d'):format(source))
+	end
+
+	vim.validate('event', event, 'number')
+	local ev = srcdef.events[event]
+	if not ev then
+		error(('Invalid event id (%d) for source: %d'):format(source, event))
+	end
+
+	if srcdef.event_state.started[event] then
+		error(('Event already started: %d'):format(event))
+	end
+	if srcdef.event_state.ended[event] then
+		error(('Event already ended: %d'):format(event))
+	end
+	srcdef.event_state.started[event] = true
+
+	local category_displays = {}
+	vim.list_extend(category_displays, broker.categories[srcdef.category])
+	vim.list_extend(category_displays, broker.categories['*'] or {})
+	if not category_displays then
+		vim.notify(
+			('No progress display registered for category "%s"'):format(
+				srcdef.category
+			),
+			vim.log.levels.DEBUG
+		)
+		return
+	end
+	for _, display in ipairs(category_displays) do
+		if broker.displays[display] then
+			local copy = vim.deepcopy(ev)
+			broker.displays[display].on_start(copy)
+		end
+	end
+end
+
+---@class fltprogr.event_update
+---@field message? string|false Use `false` to indicate removal of message
+---@field progress? number
+---@field [string] any
+
+--- Updates progress data for the started event.
+---@param source fltprogr.source Source id
+---@param event fltprogr.event Event id
+---@param data fltprogr.event_update Event update data
+function M.source_event_update(source, event, data)
+	vim.validate('source', source, 'number')
+	local srcdef = broker.sources[source]
+	if not srcdef then
+		error(('Invalid source id: %d'):format(source))
+	end
+
+	vim.validate('event', event, 'number')
+	local ev = srcdef.events[event]
+	if not ev then
+		error(('Invalid event id (%d) for source: %d'):format(source, event))
+	end
+
+	if not srcdef.event_state.started[event] then
+		error(('Event not started: %d'):format(event))
+	end
+	if srcdef.event_state.ended[event] then
+		error(('Event already ended: %d'):format(event))
+	end
+
+	vim.validate('data', data, 'table')
+
+	do
+		local evtmp = vim.tbl_extend('force', ev, data)
+		evtmp.id = ev.id
+		evtmp.title = ev.title
+		evtmp.source = ev.source
+		evtmp.category = ev.category
+		ev = evtmp
+	end
+
+	local category_displays = {}
+	vim.list_extend(category_displays, broker.categories[srcdef.category])
+	vim.list_extend(category_displays, broker.categories['*'] or {})
+	if not category_displays then
+		vim.notify(
+			('No progress display registered for category "%s"'):format(
+				srcdef.category
+			),
+			vim.log.levels.DEBUG
+		)
+		return
+	end
+	for _, display in ipairs(category_displays) do
+		if broker.displays[display] then
+			broker.displays[display].on_update(vim.deepcopy(ev, true))
+		end
+	end
+end
+
+--- Signals the end of a source event.
+---
+--- It can update some data for an ending message, displays can then decide
+--- what to do if the data changed or not.
+---@param source fltprogr.source Source id
+---@param event fltprogr.event Event id
+---@param data fltprogr.event_update? Update data for end event
+function M.source_event_end(source, event, data)
+	vim.validate('source', source, 'number')
+	local srcdef = broker.sources[source]
+	if not srcdef then
+		error(('Invalid source id: %d'):format(source))
+	end
+
+	vim.validate('event', event, 'number')
+	local ev = srcdef.events[event]
+	if not ev then
+		error(('Invalid event id (%d) for source: %d'):format(source, event))
+	end
+
+	if not srcdef.event_state.started[event] then
+		error(('Event not started: %d'):format(event))
+	end
+	if srcdef.event_state.ended[event] then
+		error(('Event already ended: %d'):format(event))
+	end
+	srcdef.event_state.ended[event] = true
+
+	vim.validate('data', data, 'table', true)
+
+	if data then
+		local evtmp = vim.tbl_extend('force', ev, data)
+		evtmp.id = ev.id
+		evtmp.title = ev.title
+		evtmp.source = ev.source
+		evtmp.category = ev.category
+		ev = evtmp
+	end
+
+	local category_displays = {}
+	vim.list_extend(category_displays, broker.categories[srcdef.category])
+	vim.list_extend(category_displays, broker.categories['*'] or {})
+	if not category_displays then
+		vim.notify(
+			('No progress display registered for category "%s"'):format(
+				srcdef.category
+			),
+			vim.log.levels.DEBUG
+		)
+		return
+	end
+	for _, display in ipairs(category_displays) do
+		if broker.displays[display] then
+			broker.displays[display].on_end(vim.deepcopy(ev, true))
+		end
+	end
+end
+
+--- Removes a source
+---@param source fltprogr.source Source id
+function M.source_delete(source)
+	vim.validate('source', source, 'number')
+	local srcdef = broker.sources[source]
+	if not srcdef then
+		error(('Invalid source id: %d'):format(source))
+	end
+
+	broker.sources[source] = false
+end
+
+--- make plugin loaders happy
+function M.setup() end
+
+return M
