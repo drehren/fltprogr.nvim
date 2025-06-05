@@ -1,6 +1,6 @@
 # fltprog.nvim
-----
-WIP: A progress api concept for neovim.
+
+WIP: Progress api concept(s) for neovim.
 
 ## Requirements
 
@@ -20,16 +20,52 @@ To use this plugin:
 3. With the progress source, create progress event that will be displayed by the registered
    progress displays that listen to the source category.
 
-This plugin creates a progress source out of LSP `workDoneProgress` messages.
-If you want to opt out:
+## How to use v2
+
+Inspired in the neovim talk about a progress interface, there is a v2 table with
+a different api.
+
+### Differences with v1
+
+- Display does not require separate registration.
+- Creation of events do not need to create distinct source, just pass a string or a
+  number (do not mix v1 usage with v2)
+
+Create display
+
+
+Create and use a progress event
 ```lua
-vim.g.fltprog_loaded = 0
-```
-```vim
-set g:fltprog_loaded = 0
+local progress = require('fltprogr').v2
+
+local event = progres.create_event('srcid', progress.categories.LSP, { 
+    -- event data ... 
+})
+
+progress.event_start(event)
+-- ...
+progress.event_update(event, { progress = 0.5 })
+-- ...
+progress.event_end(event)
+
 ```
 
-NOTE: if you are a lazy.nvim user, this may not work. Sorry.
+## Usage (v1)
+
+This plugin creates a progress source out of LSP `workDoneProgress` messages.
+If you want to opt out, create the following variable.
+
+```lua
+vim.g.fltprog_autoregister = false
+```
+```vim
+set g:fltprog_autoregister=v:false
+```
+
+Or pass to setup the following configuration
+```lua
+require('fltprogr').setup({ autoregister = false })
+```
 
 ### Create a progress display
 
