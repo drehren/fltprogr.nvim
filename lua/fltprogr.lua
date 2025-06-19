@@ -5,6 +5,7 @@ local M = {
 		ANY = '*',
 		LSP = 'lsp',
 		WORK = 'work',
+		BUFFER = 'buffer',
 	},
 }
 
@@ -40,16 +41,61 @@ local M = {
 ---@field category string
 ---@field event_state fltprogr.event_states
 
+---@private
+---@class fltprogr.catdef
+---@field displays fltprogr.display[]
+---@field validate? fun(data: fltprogr.source_progress)
+
 local progr = {
 	---@type table<integer|string, fltprogr.srcdef|false>
 	sources = {},
 	---@type (fltprogr.display.set_callbacks|false)[]
 	displays = {},
-	---@type table<string, fltprogr.display[]>
-	categories = {},
+	---@type table<fltprogr.categories|string, fltprogr.catdef>
+	categories = {
+		['*'] = { displays = {} },
+		work = { displays = {} },
+		lsp = {
+			displays = {},
+			validate = function(data)
+				vim.validate('data.client_id', data.client_id, 'number')
+			end,
+		},
+		buffer = {
+			displays = {},
+			validate = function(data)
+				vim.validate('data.buffer', data.buffer, 'number')
+			end,
+		},
+	},
 	---@type fltprogr.progress_event[]
 	events = {},
 }
+
+--- Adds an additional validator for the specified category
+---@param category fltprogr.categories|string The category to add/create
+---@param validate fun(data: fltprogr.source_progress) The validation function
+function M.add_category_validator(category, validate)
+	vim.validate('category', category, 'string')
+	vim.validate('validate', validate, 'callable')
+	if not progr.categories[category] then
+		progr.categories[category] = {
+			displays = {},
+			validate = validate,
+		}
+		return
+	end
+	local catdef = progr.categories[category]
+	local cur_validate = catdef.validate
+	if cur_validate then
+		catdef.validate = function(data)
+			cur_validate(data)
+			validate(data)
+		end
+	else
+		catdef.validate = validate
+	end
+end
 
 --- Creates a progress display.
 ---@param callbacks fltprogr.display.set_callbacks
@@ -79,7 +125,7 @@ function M.display_register(display, categories)
 	if not progr.displays[display] then
 		error(('Invalid display id: %d'):format(display))
 	end
-	vim.validate('categories', categories, 'table')
+	vim.validate('categories', categories, { 'table', 'string' })
 
 	if type(categories) ~= 'table' then
 		categories = { categories }
@@ -87,10 +133,11 @@ function M.display_register(display, categories)
 
 	for _, category in ipairs(categories) do
 		if not progr.categories[category] then
-			progr.categories[category] = {}
+			progr.categories[category] = { displays = {} }
 		end
-		if not vim.list_contains(progr.categories[category], display) then
-			table.insert(progr.categories[category], display)
+		local catdef = progr.categories[category]
+		if not vim.list_contains(catdef.displays, display) then
+			table.insert(catdef.displays, display)
 		end
 	end
 end
@@ -103,10 +150,10 @@ function M.display_delete(display)
 		error(('Invalid display id: %d'):format(display))
 	end
 
-	for _, dc in ipairs(progr.categories) do
-		for i = 1, #dc do
-			if dc[i] == display then
-				table.remove(dc, i)
+	for _, catdef in pairs(progr.categories) do
+		for i = 1, #catdef.displays do
+			if catdef.displays[i] == display then
+				table.remove(catdef.displays, i)
 				break
 			end
 		end
@@ -147,6 +194,7 @@ end
 ---@field message string? A progress message
 ---@field progress? number The progress value
 ---@field cancel? function If exists, the progress event is cancellable
+---@field [string] any Additional event data, which may be required by the specified category
 
 --- Creates and optionally starts a new event for the given source.
 ---@param source fltprogr.source Source id
@@ -165,6 +213,12 @@ function M.source_create_event(source, start, data)
 	vim.validate('data.progress', data.progress, 'number', true)
 	vim.validate('data.message', data.message, 'string', true)
 	vim.validate('data.cancel', data.cancel, 'callable', true)
+
+	-- Validate that the event contains required category data
+	local catdef = progr.categories[srcdef.category]
+	if catdef.validate then
+		catdef.validate(data)
+	end
 
 	---@type fltprogr.progress_event
 	local event = {
@@ -191,6 +245,28 @@ function M.source_create_event(source, start, data)
 	return #progr.events
 end
 
+---@param category string
+---@param ev fltprogr.progress_event
+---@param to 'on_start'|'on_update'|'on_end'
+local function send_event(category, ev, to)
+	local catdef = progr.categories[category]
+	local category_displays = {}
+	vim.list_extend(category_displays, catdef.displays)
+	vim.list_extend(category_displays, progr.categories['*'].displays)
+	if #category_displays == 0 then
+		vim.notify(
+			('No display registered for category "%s"'):format(category),
+			vim.log.levels.DEBUG
+		)
+		return
+	end
+	for _, display in ipairs(category_displays) do
+		if progr.displays[display] then
+			progr.displays[display][to](vim.deepcopy(ev))
+		end
+	end
+end
+
 --- Starts an event
 ---@param source fltprogr.source Source id
 ---@param event fltprogr.event Event id
@@ -215,24 +291,7 @@ function M.source_event_start(source, event)
 	end
 	srcdef.event_state.started[event] = true
 
-	local category_displays = {}
-	vim.list_extend(category_displays, progr.categories[srcdef.category])
-	vim.list_extend(category_displays, progr.categories['*'] or {})
-	if not category_displays then
-		vim.notify(
-			('No progress display registered for category "%s"'):format(
-				srcdef.category
-			),
-			vim.log.levels.DEBUG
-		)
-		return
-	end
-	for _, display in ipairs(category_displays) do
-		if progr.displays[display] then
-			local copy = vim.deepcopy(ev)
-			progr.displays[display].on_start(copy)
-		end
-	end
+	send_event(srcdef.category, ev, 'on_start')
 end
 
 ---@class fltprogr.event_update
@@ -275,23 +334,7 @@ function M.source_event_update(source, event, data)
 		ev = evtmp
 	end
 
-	local category_displays = {}
-	vim.list_extend(category_displays, progr.categories[srcdef.category])
-	vim.list_extend(category_displays, progr.categories['*'] or {})
-	if not category_displays then
-		vim.notify(
-			('No progress display registered for category "%s"'):format(
-				srcdef.category
-			),
-			vim.log.levels.DEBUG
-		)
-		return
-	end
-	for _, display in ipairs(category_displays) do
-		if progr.displays[display] then
-			progr.displays[display].on_update(vim.deepcopy(ev, true))
-		end
-	end
+	send_event(srcdef.category, ev, 'on_update')
 end
 
 --- Signals the end of a source event.
@@ -333,23 +376,7 @@ function M.source_event_end(source, event, data)
 		ev = evtmp
 	end
 
-	local category_displays = {}
-	vim.list_extend(category_displays, progr.categories[srcdef.category])
-	vim.list_extend(category_displays, progr.categories['*'] or {})
-	if not category_displays then
-		vim.notify(
-			('No progress display registered for category "%s"'):format(
-				srcdef.category
-			),
-			vim.log.levels.DEBUG
-		)
-		return
-	end
-	for _, display in ipairs(category_displays) do
-		if progr.displays[display] then
-			progr.displays[display].on_end(vim.deepcopy(ev, true))
-		end
-	end
+	send_event(srcdef.category, ev, 'on_end')
 end
 
 --- Removes a source

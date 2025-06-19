@@ -24,10 +24,6 @@ local function create_lsp_source(client)
 	return lspsources[client.id]
 end
 
-local function build_title(client, title)
-	return ('%s:%s'):format(client.name, title)
-end
-
 vim.api.nvim_create_autocmd('LspProgress', {
 	group = augid,
 	pattern = 'begin',
@@ -45,8 +41,9 @@ vim.api.nvim_create_autocmd('LspProgress', {
 		end
 		local value = ev.data.params.value
 		local evdata = {
-			title = build_title(client, value.title),
+			title = value.title,
 			message = value.message,
+			client_id = ev.data.client_id,
 		}
 		if value.cancellable then
 			function ev.data.cancel()

@@ -20,6 +20,14 @@ To use this plugin:
 3. With the progress source, create progress event that will be displayed by the registered
    progress displays that listen to the source category.
 
+### Included Categories
+
+* WORK (`'work'`): used for background work (like when waiting to receive data from somewhere, or waiting on a long running process).
+* LSP (`'lsp'`): used for standard LSP communication.
+Events require `client_id` to be set, so display can fetch client data.
+* BUFFER (`'buffer'`): used when the progress has direct relation with a specific buffer.
+Events require `buffer` to be set for the buffer nr the event is about.
+
 ## How to use v2
 
 Inspired in the neovim talk about a progress interface, there is a v2 table with
@@ -139,4 +147,3 @@ progress.source_event_end(source, event, {
 
 -- after this, event cannot be used anymore
 ```
-
