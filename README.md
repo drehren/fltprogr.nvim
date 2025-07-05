@@ -28,6 +28,10 @@ Events require `client_id` to be set, so display can fetch client data.
 * BUFFER (`'buffer'`): used when the progress has direct relation with a specific buffer.
 Events require `buffer` to be set for the buffer nr the event is about.
 
+Sending events to an unknown category name does not generate an error, same when registering a display.
+
+Additional validation can be set for categories by using `add_category_validator`. These validations will stack up.
+
 ## How to use v2
 
 Inspired in the neovim talk about a progress interface, there is a v2 table with

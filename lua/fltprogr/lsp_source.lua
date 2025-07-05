@@ -45,7 +45,7 @@ vim.api.nvim_create_autocmd('LspProgress', {
 			message = value.message,
 			client_id = ev.data.client_id,
 		}
-		if value.cancellable then
+		if value.cancellable == true then
 			function ev.data.cancel()
 				client:notify('window/workDoneProgress/cancel', {
 					token = token,

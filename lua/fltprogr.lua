@@ -465,4 +465,6 @@ function M.v2.event_end(event, data)
 	M.source_event_end(source, event, data)
 end
 
+M.v2.add_category_validator = M.add_category_validator
+
 return M
