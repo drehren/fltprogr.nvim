@@ -404,7 +404,8 @@ function M.setup(opts)
 end
 
 --- Modified api to resemble what was posted to neovim #32537
-M.v2 = {}
+---@class fltprogr.api2
+M.api2 = {}
 
 local progr2 = {
 	---@type table<integer, integer|string>
@@ -415,7 +416,7 @@ local progr2 = {
 ---@param categories string|fltprogr.categories|(string|fltprogr.categories)[]
 ---@param callbacks fltprogr.display.set_callbacks
 ---@return fltprogr.display
-function M.v2.create_display(categories, callbacks)
+function M.api2.create_display(categories, callbacks)
 	vim.validate('categories', categories, { 'table', 'string' })
 	vim.validate('callbacks', callbacks, 'table')
 	local id = M.create_display(callbacks)
@@ -428,7 +429,7 @@ end
 ---@param category string|fltprogr.categories Progress event category
 ---@param event fltprogr.source_progress Event data
 ---@return fltprogr.event event Event id
-function M.v2.create_event(srcid, category, event)
+function M.api2.create_event(srcid, category, event)
 	if not M.source_is_valid(srcid) then
 		local source = M.create_source(category)
 		progr.sources[srcid] = progr.sources[source]
@@ -441,7 +442,7 @@ end
 
 --- Starts a created progress event
 ---@param event fltprogr.event Event id
-function M.v2.event_start(event)
+function M.api2.event_start(event)
 	vim.validate('event', event, 'number')
 	local source = progr2.events[event]
 	M.source_event_start(source, event)
@@ -450,21 +451,21 @@ end
 --- Updates an ongoing progress event
 ---@param event fltprogr.event Event id
 ---@param data fltprogr.event_update Update event data
-function M.v2.event_update(event, data)
+function M.api2.event_update(event, data)
 	vim.validate('event', event, 'number')
-	local source = M.v2._events[event]
+	local source = progr2.events[event]
 	M.source_event_update(source, event, data)
 end
 
 --- Signals the end of the progress event
 ---@param event fltprogr.event Event id
 ---@param data fltprogr.event_update Update event data
-function M.v2.event_end(event, data)
+function M.api2.event_end(event, data)
 	vim.validate('event', event, 'number')
 	local source = progr2.events[event]
 	M.source_event_end(source, event, data)
 end
 
-M.v2.add_category_validator = M.add_category_validator
+M.api2.add_category_validator = M.add_category_validator
 
 return M

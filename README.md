@@ -32,23 +32,23 @@ Sending events to an unknown category name does not generate an error, same when
 
 Additional validation can be set for categories by using `add_category_validator`. These validations will stack up.
 
-## How to use v2
+## How to use api2
 
-Inspired in the neovim talk about a progress interface, there is a v2 table with
+Inspired in the neovim talk about a progress interface, there is a api2 table with
 a different api.
 
-### Differences with v1
+### Differences with api1
 
 - Display does not require separate registration.
 - Creation of events do not need to create distinct source, just pass a string or a
-  number (do not mix v1 usage with v2)
+  number (do not mix api1 usage with api2)
 
 Create display
 
 
 Create and use a progress event
 ```lua
-local progress = require('fltprogr').v2
+local progress = require('fltprogr').api2
 
 local event = progres.create_event('srcid', progress.categories.LSP, { 
     -- event data ... 
@@ -62,7 +62,7 @@ progress.event_end(event)
 
 ```
 
-## Usage (v1)
+## Usage (api1)
 
 This plugin creates a progress source out of LSP `workDoneProgress` messages.
 If you want to opt out, create the following variable.
@@ -146,7 +146,7 @@ progress.source_event_update(source, event, {
 
 -- to signal the end of the progress event
 progress.source_event_end(source, event, {
-    -- same data as before
+    -- same keys as before
 })
 
 -- after this, event cannot be used anymore
