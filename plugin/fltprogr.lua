@@ -3,3 +3,8 @@ if vim.g.fltprogr_loaded then
 end
 
 vim.g.fltprogr_loaded = true
+
+if not package.loaded.lazy then
+	print('autoload fltprogr')
+	require('fltprogr').setup()
+end

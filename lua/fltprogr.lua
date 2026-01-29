@@ -405,18 +405,6 @@ function M.source_delete(source)
 	progr.sources[source] = false
 end
 
-function M.setup(opts)
-	local cfg = vim.tbl_extend(
-		'force',
-		{ autoregister = true },
-		opts or { autoregister = vim.g.fltprogr_autoregister == 1 or nil }
-	)
-
-	if cfg.autoregister then
-		require('fltprogr.lsp_source')
-	end
-end
-
 --- Modified api to resemble what was posted to neovim #32537
 ---@class fltprogr.api2
 M.api2 = {}
@@ -481,5 +469,18 @@ function M.api2.event_end(event, data)
 end
 
 M.api2.add_category_validator = M.add_category_validator
+
+---@class fltprogr.config
+--- Automatically register LSP progress source. Defaults to `true`.
+---@field autoregister? boolean
+
+---@param opts? fltprogr.config
+function M.setup(opts)
+	opts = opts or { autoregister = vim.g.fltprogr_autoregister or true }
+
+	if opts.autoregister then
+		require('fltprogr.lsp_source')
+	end
+end
 
 return M
