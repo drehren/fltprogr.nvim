@@ -10,6 +10,7 @@ local M = {
 }
 
 ---@class fltprogr.progress_event
+---@field id fltprogr.event Event id
 ---@field source fltprogr.source The source id
 ---@field category string The category this event was sent to
 ---@field title string Event title, is the same through the event
@@ -72,6 +73,8 @@ local progr = {
 	events = {},
 }
 
+local src_validator = { 'number', 'string' }
+
 --- Adds an additional validator for the specified category
 ---@param category fltprogr.categories|string The category to add/create
 ---@param validate fun(data: fltprogr.source_progress) The validation function
@@ -122,8 +125,7 @@ end
 ---@param to 'on_start'|'on_update'|'on_end'
 local function send_event(category, ev, to)
 	local catdef = progr.categories[category]
-	local category_displays = {}
-	vim.list_extend(category_displays, catdef.displays)
+	local category_displays = vim.list_extend({}, catdef.displays)
 	vim.list_extend(category_displays, progr.categories['*'].displays)
 	if #category_displays == 0 then
 		vim.notify(
@@ -168,7 +170,6 @@ function M.display_register(display, categories)
 		if srcdef and vim.list_contains(categories, srcdef.category) then
 			for evid, started in pairs(srcdef.event_state.started) do
 				if started and not srcdef.event_state.ended[evid] then
-					-- send_event(srcdef.category, progr.events[evid], 'on_start')
 					progr.displays[display].on_start(
 						vim.deepcopy(progr.events[evid])
 					)
@@ -214,6 +215,9 @@ function M.create_source(category)
 		},
 	}
 	table.insert(progr.sources, srcdef)
+	if not progr.categories[category] then
+		progr.categories[category] = { displays = {} }
+	end
 	return #progr.sources
 end
 
@@ -221,7 +225,7 @@ end
 ---@param source fltprogr.source Source id
 ---@return boolean
 function M.source_is_valid(source)
-	vim.validate('source', source, 'number')
+	vim.validate('source', source, src_validator)
 	return not not progr.sources[source]
 end
 
@@ -237,7 +241,7 @@ end
 ---@param start boolean Indicate whether to start/signal this event right away
 ---@param data fltprogr.source_progress Source event data
 function M.source_create_event(source, start, data)
-	vim.validate('source', source, { 'number', 'string' })
+	vim.validate('source', source, src_validator)
 
 	local srcdef = progr.sources[source]
 	if not srcdef then
@@ -258,6 +262,7 @@ function M.source_create_event(source, start, data)
 
 	---@type fltprogr.progress_event
 	local event = {
+		id = #progr.events + 1,
 		title = data.title,
 		message = data.message,
 		progress = data.progress or true,
@@ -267,7 +272,7 @@ function M.source_create_event(source, start, data)
 	if data.cancel then
 		event.cancel = function(...)
 			data.cancel(...)
-			M.source_event_end(source, event.id)
+			M.source_event_end(source, event.id, { end_state = 'cancelled' })
 		end
 	end
 	-- copy additional data into event
@@ -281,11 +286,47 @@ function M.source_create_event(source, start, data)
 	return #progr.events
 end
 
+--- Checks if the specified event has started
+---@param source fltprogr.source Source id
+---@param event fltprogr.event Event id
+---@return boolean started
+function M.source_event_running(source, event)
+	vim.validate('source', source, src_validator)
+	local srcdef = progr.sources[source]
+	if not srcdef then
+		error(('Invalid source id: %d'):format(source))
+	end
+	return not not srcdef.event_state.started[event]
+end
+
+--- Cancels the progress event
+---@param source fltprogr.source Source id
+---@param event fltprogr.event Event id
+function M.source_event_cancel(source, event)
+	vim.validate('source', source, src_validator)
+	local srcdef = progr.sources[source]
+	if not srcdef then
+		error(('Invalid source id: %d'):format(source))
+	end
+	vim.validate('event', event, 'number')
+	local ev = progr.events[event]
+	if not ev then
+		error(('Invalid event id (%d) for source: %d'):format(source, event))
+	end
+	if not srcdef.event_state.started[event] then
+		error(('Event not started: %d'):format(event))
+	end
+	if srcdef.event_state.ended[event] then
+		error(('Event already ended: %d'):format(event))
+	end
+	assert(ev.cancel, 'event is not cancellable')()
+end
+
 --- Starts an event
 ---@param source fltprogr.source Source id
 ---@param event fltprogr.event Event id
 function M.source_event_start(source, event)
-	vim.validate('source', source, 'number')
+	vim.validate('source', source, src_validator)
 	local srcdef = progr.sources[source]
 	if not srcdef then
 		error(('Invalid source id: %d'):format(source))
@@ -313,12 +354,15 @@ end
 ---@field progress? number Progress
 ---@field [string] any Additional data
 
+---@class fltprogr.event_end : fltprogr.event_update
+---@field end_state? 'success'|'failed'|'cancelled'
+
 --- Updates progress data for the started event.
 ---@param source fltprogr.source Source id
 ---@param event fltprogr.event Event id
 ---@param data fltprogr.event_update Event update data
 function M.source_event_update(source, event, data)
-	vim.validate('source', source, 'number')
+	vim.validate('source', source, src_validator)
 	local srcdef = progr.sources[source]
 	if not srcdef then
 		error(('Invalid source id: %d'):format(source))
@@ -357,9 +401,9 @@ end
 --- what to do if the data changed or not.
 ---@param source fltprogr.source Source id
 ---@param event fltprogr.event Event id
----@param data fltprogr.event_update? Update data for end event
+---@param data fltprogr.event_end? Update data for end event
 function M.source_event_end(source, event, data)
-	vim.validate('source', source, 'number')
+	vim.validate('source', source, src_validator)
 	local srcdef = progr.sources[source]
 	if not srcdef then
 		error(('Invalid source id: %d'):format(source))
@@ -396,7 +440,7 @@ end
 --- Removes a source
 ---@param source fltprogr.source Source id
 function M.source_delete(source)
-	vim.validate('source', source, 'number')
+	vim.validate('source', source, src_validator)
 	local srcdef = progr.sources[source]
 	if not srcdef then
 		error(('Invalid source id: %d'):format(source))
@@ -461,11 +505,27 @@ end
 
 --- Signals the end of the progress event
 ---@param event fltprogr.event Event id
----@param data? fltprogr.event_update Update event data
+---@param data? fltprogr.event_end Update event data
 function M.api2.event_end(event, data)
 	vim.validate('event', event, 'number')
 	local source = assert(progr2.events[event], 'invalid event')
 	M.source_event_end(source, event, data)
+end
+
+--- Cancels the progress event
+---@param event fltprogr.event Event id
+function M.api2.event_cancel(event)
+	vim.validate('event', event, 'number')
+	local source = assert(progr2.events[event], 'invalid event')
+	M.source_event_cancel(source, event)
+end
+
+--- Returns `true` if the event is still running
+---@return boolean running
+function M.api2.event_running(event)
+	vim.validate('event', event, 'number')
+	local source = assert(progr2.events[event], 'invalid event')
+	return M.source_event_running(source, event)
 end
 
 M.api2.add_category_validator = M.add_category_validator
@@ -479,6 +539,9 @@ function M.setup(opts)
 	opts = opts or { autoregister = vim.g.fltprogr_autoregister or true }
 
 	if opts.autoregister then
+		if vim.version.ge(vim.version(), { 0, 12, 0 }) then
+			require('fltprogr.autocmd_source')
+		end
 		require('fltprogr.lsp_source')
 	end
 end
