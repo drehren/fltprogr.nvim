@@ -36,9 +36,14 @@ vim.api.nvim_create_autocmd('LspProgress', {
 		local progress = require('fltprogr')
 		local token = ev.data.params.token
 		if lspprog.event[token] then
+			vim.notify(
+				'fltprogr lsp begin: server reusing token',
+				vim.log.levels.ERROR
+			)
 			-- lsp server reusing token?
 			progress.source_event_end(lspprog.source, lspprog.event[token])
 		end
+		---@type lsp.WorkDoneProgressBegin
 		local value = ev.data.params.value
 		local evdata = {
 			title = value.title,
@@ -72,10 +77,9 @@ vim.api.nvim_create_autocmd('LspProgress', {
 		end
 		local lspprog = create_lsp_source(client)
 		local token = ev.data.params.token
-		local event = lspprog.event[token]
-		if not event then
-			return
-		end
+		local event =
+			assert(lspprog.event[token], 'fltprogr lsp report: no event')
+		---@type lsp.WorkDoneProgressReport
 		local value = ev.data.params.value
 		local evdata = {
 			message = value.message,
@@ -99,15 +103,14 @@ vim.api.nvim_create_autocmd('LspProgress', {
 		end
 		local lspprog = create_lsp_source(client)
 		local token = ev.data.params.token
-		local event = lspprog.event[token]
-		if not event then
-			return
-		end
+		local event = assert(lspprog.event[token], 'fltprogr lsp end: no event')
+		---@type lsp.WorkDoneProgressEnd
 		local value = ev.data.params.value
 		local progress = require('fltprogr')
 		progress.source_event_end(lspprog.source, event, {
 			message = value.message or false,
 			progress = lspprog.evprog[token] and 1 or nil,
 		})
+		lspprog.event[token] = nil
 	end,
 })
