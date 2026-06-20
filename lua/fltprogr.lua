@@ -134,8 +134,11 @@ local function send_event(category, ev, to)
 		)
 		return
 	end
+	-- we may have repeated displays due to the addition of the star category
+	local used = {}
 	for _, display in ipairs(category_displays) do
-		if progr.displays[display] then
+		if progr.displays[display] and not used[display] then
+			used[display] = true
 			progr.displays[display][to](vim.deepcopy(ev))
 		end
 	end
