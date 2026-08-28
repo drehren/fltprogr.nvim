@@ -60,7 +60,11 @@ vim.api.nvim_create_autocmd('Progress', {
 		if not evid then
 			evid = progr.create_event('aucmd', data.source, evdata)
 			events[data.id] = evid
-			evdata = nil
+			if data.status ~= 'running' then
+				progr.event_start(evid)
+			else
+				evdata = nil
+			end
 		end
 
 		status_handlers[data.status](evid, evdata, data.id)
