@@ -1,4 +1,1 @@
-return {
-	"drehren/fltprogr.nvim",
-	opts = {},
-}
+return { 'drehren/fltprogr.nvim' }

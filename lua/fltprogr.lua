@@ -537,16 +537,4 @@ M.api2.add_category_validator = M.add_category_validator
 --- Automatically register LSP progress source. Defaults to `true`.
 ---@field autoregister? boolean
 
----@param opts? fltprogr.config
-function M.setup(opts)
-	opts = opts or { autoregister = vim.g.fltprogr_autoregister or true }
-
-	if opts.autoregister then
-		if vim.version.ge(vim.version(), { 0, 12, 0 }) then
-			require('fltprogr.autocmd_source')
-		end
-		require('fltprogr.lsp_source')
-	end
-end
-
 return M

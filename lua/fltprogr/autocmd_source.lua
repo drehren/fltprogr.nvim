@@ -1,14 +1,5 @@
 --- Listen to Progress autocommand
 
----@class fltprogr.vim_progress
----@field id integer|string
----@field text string[]
----@field title? string
----@field source string
----@field status 'running'|'success'|'failed'|'cancel'
----@field percent? integer
----@field data any
-
 ---@type fltprogr.api2
 local progr
 
@@ -46,7 +37,7 @@ vim.api.nvim_create_autocmd('Progress', {
 			progr = require('fltprogr').api2
 			status_handlers.cancel = progr.event_cancel
 		end
-		---@type fltprogr.vim_progress
+		---@type vim.event.progress.data
 		local data = args.data
 
 		local evid = events[data.id]
